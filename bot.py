@@ -6,7 +6,6 @@ import json
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify
 import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler, ContextTypes
@@ -397,14 +396,8 @@ def delete_webhook():
 # ========== ЗАПУСК ==========
 
 if __name__ == '__main__':
-    # Проверяем наличие переменных окружения
-    if not TELEGRAM_TOKEN:
-        logger.error("❌ TELEGRAM_TOKEN не задан! Создайте файл .env")
-        exit(1)
-    
-    if not GOOGLE_SHEETS_ID:
-        logger.error("❌ GOOGLE_SHEETS_ID не задан! Создайте файл .env")
-        exit(1)
+    print("✅ Бот запущен и работает в режиме polling...")
+    application.run_polling()
     
     # Проверяем наличие credentials.json
     if not os.path.exists('credentials.json'):
@@ -417,4 +410,5 @@ if __name__ == '__main__':
     # Запускаем Flask-сервер
     port = int(os.environ.get('PORT', 5000))
     logger.info(f"✅ Бот запущен на порту {port}")
+
     app.run(host='0.0.0.0', port=port, debug=False)
