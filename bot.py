@@ -18,7 +18,7 @@ PRICE, YEAR, ENGINE, POWER = range(4)
 # ========== ФУНКЦИИ РАСЧЁТА (БЕЗ НДС) ==========
 def calculate_duty(price_jpy, year, engine_cc, power_hp):
     # Курсы валют (можно заменить на актуальные, но пока так)
-    jpy_rate = 0.55
+    jpy_rate = 0.50
     eur_rate = 95.0
 
     current_year = datetime.now().year
@@ -272,3 +272,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
