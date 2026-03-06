@@ -21,19 +21,28 @@ SHEET_ID = os.environ.get('GOOGLE_SHEETS_ID')
 # ========== РАБОТА С GOOGLE SHEETS ==========
 
 def get_sheets_client():
-    """Подключение к Google Sheets через Service Account"""
+    """Подключение к Google Sheets через Service Account (стабильная версия)"""
     try:
-        creds = Credentials.from_service_account_file(
-            'credentials.json',
-            scopes=['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        )
-        client = gspread.authorize(creds)
-        logger.info("✅ Подключение к Google Sheets успешно")
+        import json
+        from oauth2client.service_account import ServiceAccountCredentials
+        
+        # Читаем файл напрямую
+        with open('credentials.json', 'r') as f:
+            json_key = json.load(f)
+        
+        scope = ['https://spreadsheets.google.com/feeds', 
+                 'https://www.googleapis.com/auth/drive']
+        
+        # Используем старый добрый метод, который точно работает
+        credentials = ServiceAccountCredentials.from_json_keyfile_name(
+            'credentials.json', scope)
+        
+        client = gspread.authorize(credentials)
+        logging.info("✅ Подключение к Google Sheets успешно")
         return client
     except Exception as e:
-        logger.error(f"❌ Ошибка подключения к Google Sheets: {e}")
+        logging.error(f"❌ Ошибка подключения к Google Sheets: {e}")
         return None
-
 def test_sheet_connection():
     """Тест подключения к таблице"""
     try:
@@ -95,4 +104,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
