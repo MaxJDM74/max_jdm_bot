@@ -1,19 +1,10 @@
 import os
 import logging
-from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import gspread
 from google.oauth2.service_account import Credentials
-import subprocess
-import logging
 
-# Принудительная синхронизация времени сервера
-try:
-    subprocess.run(['ntpdate', '-u', 'pool.ntp.org'], check=False, capture_output=True)
-    logging.info("✅ Время сервера синхронизировано")
-except Exception as e:
-    logging.warning(f"⚠️ Не удалось синхронизировать время: {e}")
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,43 +14,24 @@ SHEET_ID = os.environ.get('GOOGLE_SHEETS_ID')
 
 # ========== РАБОТА С GOOGLE SHEETS ==========
 
-def get_sheets_client():
-    """Подключение к Google Sheets через Service Account"""
-    try:
-        import json
-        from oauth2client.service_account import ServiceAccountCredentials
-        
-        # Читаем файл напрямую
-        with open('credentials.json', 'r') as f:
-            json_key = json.load(f)
-        
-        scope = ['https://spreadsheets.google.com/feeds', 
-                 'https://www.googleapis.com/auth/drive']
-        
-        # Используем старый проверенный метод
-        credentials = ServiceAccountCredentials.from_json_keyfile_name(
-            'credentials.json', scope)
-        
-        client = gspread.authorize(credentials)
-        logging.info("✅ Подключение к Google Sheets успешно")
-        return client
-    except Exception as e:
-        logging.error(f"❌ Ошибка подключения к Google Sheets: {e}")
-        return None
 def test_sheet_connection():
-    """Тест подключения к таблице"""
+    """Проверка связи с таблицей"""
     try:
-        client = get_sheets_client()
-        if not client:
-            return False, "Не удалось подключиться к Google Sheets"
+        # Используем современный метод service_account
+        # Он сам читает credentials.json и сам берет нужные scopes
+        gc = gspread.service_account(filename='credentials.json')
         
-        sheet = client.open_by_key(SHEET_ID).worksheet('Калькулятор')
-        value = sheet.acell('C1').value  # Берём курс JPY для проверки
+        # Открываем таблицу по ID
+        sh = gc.open_by_key(SHEET_ID)
+        worksheet = sh.worksheet('Калькулятор')
         
-        return True, f"Связь есть! Курс JPY: {value}"
+        # Читаем ячейку C1 (курс JPY)
+        value = worksheet.acell('C1').value
+        
+        return True, f"✅ Связь есть! Курс JPY: {value}"
     except Exception as e:
-        logger.error(f"Ошибка при тесте таблицы: {e}")
-        return False, f"Ошибка: {str(e)}"
+        logger.error(f"Ошибка: {e}")
+        return False, f"❌ Ошибка: {str(e)}"
 
 # ========== ОБРАБОТЧИКИ ==========
 
@@ -75,11 +47,7 @@ async def test_sheets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Проверяю связь с таблицей...")
     
     success, message = test_sheet_connection()
-    
-    if success:
-        await update.message.reply_text(f"✅ {message}")
-    else:
-        await update.message.reply_text(f"❌ {message}")
+    await update.message.reply_text(message)
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f'🔥 Ты написал: {update.message.text}')
@@ -107,7 +75,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
