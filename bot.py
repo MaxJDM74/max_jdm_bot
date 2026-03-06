@@ -1,12 +1,11 @@
 import os
 import logging
-import math
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes, ConversationHandler
 
 # Настройка логирования
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asname)-8s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Константы
@@ -16,21 +15,21 @@ YOUR_NICK = '@Max_JDM_chel'
 # Состояния диалога
 PRICE, YEAR, ENGINE, POWER = range(4)
 
-# ========== ФУНКЦИИ РАСЧЁТА (всё в Python) ==========
-
+# ========== ФУНКЦИИ РАСЧЁТА (БЕЗ НДС) ==========
 def calculate_duty(price_jpy, year, engine_cc, power_hp):
-    # курсы валют (можно позже сделать автоматические)
+    # Курсы валют (можно заменить на актуальные, но пока так)
     jpy_rate = 0.55
     eur_rate = 95.0
 
     current_year = datetime.now().year
     age = current_year - year
 
+    # Таможенная стоимость = авто + фрахт (120 000 йен)
     price_rub = price_jpy * jpy_rate
     freight_rub = 120000 * jpy_rate
     customs_value = price_rub + freight_rub
 
-    # Пошлина
+    # Расчёт пошлины
     if age < 3:
         duty_option1 = customs_value * 0.54
         duty_option2 = engine_cc * 2.5 * eur_rate
@@ -90,13 +89,13 @@ def calculate_duty(price_jpy, year, engine_cc, power_hp):
     else:
         customs_fee = 13110
 
+    # Фиксированные услуги
     services = 60000
     propiska = 5000
     commission = 30000
 
-    nds = (customs_value + duty_rub) * 0.2
-
-    total_vlad = customs_value + duty_rub + util_rub + customs_fee + services + propiska + nds
+    # ИТОГО во Владивостоке (БЕЗ НДС)
+    total_vlad = customs_value + duty_rub + util_rub + customs_fee + services + propiska
     total_with_commission = total_vlad + commission
 
     return {
@@ -106,44 +105,12 @@ def calculate_duty(price_jpy, year, engine_cc, power_hp):
         'customs_fee': round(customs_fee),
         'services': services,
         'propiska': propiska,
-        'nds': round(nds),
         'commission': commission,
         'total_with_commission': round(total_with_commission)
     }
 
 def format_number(num):
     return f"{num:,}".replace(',', ' ')
-
-# ========== ЛОГИРОВАНИЕ (опционально) ==========
-
-def log_to_google_sheets(data, results):
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-        gc = gspread.service_account(filename='credentials.json')
-        sh = gc.open_by_key(os.environ.get('GOOGLE_SHEETS_ID'))
-        worksheet = sh.worksheet('Логи')
-        now = datetime.now()
-        worksheet.append_row([
-            now.strftime('%d.%m.%Y'),
-            now.strftime('%H:%M:%S'),
-            'бот',
-            data.get('username', '-'),
-            data['price'],
-            data['year'],
-            data['engine'],
-            data['power'],
-            results['total_with_commission'],
-            results['duty_rub'],
-            results['util_rub'],
-            results['customs_fee'],
-            results['services'],
-            results['propiska'],
-            results['commission']
-        ])
-        logger.info("✅ Записано в Google Sheets")
-    except Exception as e:
-        logger.warning(f"Логирование не удалось: {e}")
 
 # ========== ОБРАБОТЧИКИ ==========
 
@@ -160,10 +127,12 @@ async def handle_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().replace(' ', '')
     try:
         price = int(text)
-        if price <= 0: raise ValueError
+        if price <= 0:
+            raise ValueError
     except ValueError:
         await update.message.reply_text("❌ Введите корректную цену (целое положительное число):")
         return PRICE
+
     context.user_data['price'] = price
     await update.message.reply_text("📅 **Введите год выпуска** (например: 2020):", parse_mode='Markdown')
     return YEAR
@@ -173,10 +142,12 @@ async def handle_year(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         year = int(text)
         current_year = datetime.now().year
-        if year < 1990 or year > current_year + 1: raise ValueError
+        if year < 1990 or year > current_year + 1:
+            raise ValueError
     except ValueError:
         await update.message.reply_text(f"❌ Введите корректный год (1990-{current_year + 1}):")
         return YEAR
+
     context.user_data['year'] = year
     await update.message.reply_text("🔧 **Введите объём двигателя** в см³ (например: 1600):", parse_mode='Markdown')
     return ENGINE
@@ -185,10 +156,12 @@ async def handle_engine(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().replace(' ', '')
     try:
         engine = int(text)
-        if engine < 100 or engine > 10000: raise ValueError
+        if engine < 100 or engine > 10000:
+            raise ValueError
     except ValueError:
         await update.message.reply_text("❌ Введите корректный объём (100-10000 см³):")
         return ENGINE
+
     context.user_data['engine'] = engine
     await update.message.reply_text("⚡ **Введите мощность** в л.с. (например: 100):", parse_mode='Markdown')
     return POWER
@@ -197,11 +170,13 @@ async def handle_power(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     try:
         power = int(text)
-        if power < 10 or power > 1000: raise ValueError
+        if power < 10 or power > 1000:
+            raise ValueError
     except ValueError:
         await update.message.reply_text("❌ Введите корректную мощность (10-1000 л.с.):")
         return POWER
 
+    # Сохраняем данные
     context.user_data['power'] = power
     price = context.user_data['price']
     year = context.user_data['year']
@@ -211,6 +186,7 @@ async def handle_power(update: Update, context: ContextTypes.DEFAULT_TYPE):
     results = calculate_duty(price, year, engine, power)
     context.user_data['last_results'] = results
 
+    # Краткий результат
     short = (
         f"🚗 **РАСЧЁТ СТОИМОСТИ АВТО ИЗ ЯПОНИИ**\n\n"
         f"✅ **Ваши данные:**\n"
@@ -219,25 +195,13 @@ async def handle_power(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Объём: {format_number(engine)} см³\n"
         f"• Мощность: {power} л.с.\n\n"
         f"💰 **ИТОГО во Владивостоке:** {format_number(results['total_with_commission'])} ₽\n\n"
-        f"ℹ️ Нажмите кнопку **\"🔍 Детали\"**, чтобы увидеть полный расчёт"
+        f"ℹ️ Нажмите кнопку **\"🔍 Детали\"**, чтобы увидеть полный расчёт.\n"
+        f"🔄 Для нового расчёта введите /start"
     )
 
-    keyboard = [[
-        InlineKeyboardButton("🔍 Детали", callback_data='details'),
-        InlineKeyboardButton("🔄 Новый расчёт", callback_data='new')
-    ]]
+    # Оставляем только кнопку "Детали"
+    keyboard = [[InlineKeyboardButton("🔍 Детали", callback_data='details')]]
     await update.message.reply_text(short, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-    # Логирование, если есть ключи
-    if os.environ.get('GOOGLE_SHEETS_ID') and os.path.exists('credentials.json'):
-        log_data = {
-            'username': update.effective_user.username,
-            'price': price,
-            'year': year,
-            'engine': engine,
-            'power': power
-        }
-        log_to_google_sheets(log_data, results)
 
     return ConversationHandler.END
 
@@ -255,16 +219,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🏷️ Таможенный сбор: {format_number(results['customs_fee'])} ₽\n"
                 f"📋 ЭПТС / услуги: {format_number(results['services'])} ₽\n"
                 f"📍 Прописка: {format_number(results['propiska'])} ₽\n"
-                f"💰 НДС 20%: {format_number(results['nds'])} ₽\n"
                 f"➕ Комиссия: {format_number(results['commission'])} ₽\n\n"
                 f"✨ **ИТОГО: {format_number(results['total_with_commission'])} ₽**"
             )
             await query.message.reply_text(full, parse_mode='Markdown')
         else:
-            await query.message.reply_text("❌ Данные не найдены.")
-    elif query.data == 'new':
-        await query.message.reply_text("🚗 **Введите стоимость авто в йенах** (например: 1000000):", parse_mode='Markdown')
-        return PRICE
+            await query.message.reply_text("❌ Данные не найдены. Введите /start для нового расчёта.")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Отменено. Для начала введите /start")
@@ -279,18 +239,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   • Год выпуска\n"
         "   • Объём двигателя (см³)\n"
         "   • Мощность (л.с.)\n\n"
-        "3. Получите расчёт с кнопками.\n\n"
-        "Команда /help — это сообщение",
+        "3. Получите расчёт и кнопку «Детали».\n"
+        "4. Для нового расчёта снова введите /start.",
         parse_mode='Markdown'
     )
 
 # ========== ЗАПУСК ==========
-
 def main():
     if not TOKEN:
-        logger.error("❌ Нет токена!")
+        logger.error("❌ Нет TELEGRAM_TOKEN!")
         return
+
     app = Application.builder().token(TOKEN).build()
+
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
@@ -301,11 +262,12 @@ def main():
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
+
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler('help', help_command))
     app.add_handler(CallbackQueryHandler(button_callback))
-    # ВАЖНО: НЕТ эхо-обработчика!
-    logger.info("✅ Бот запущен")
+
+    logger.info("✅ Бот запущен. Жду сообщения...")
     app.run_polling()
 
 if __name__ == '__main__':
