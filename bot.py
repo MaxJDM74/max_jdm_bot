@@ -5,7 +5,12 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import gspread
 from google.oauth2.service_account import Credentials
-
+# Принудительная синхронизация времени (для Railway)
+try:
+    subprocess.run(['ntpdate', '-u', 'pool.ntp.org'], check=False, capture_output=True)
+    logging.info("Время синхронизировано")
+except:
+    logging.warning("Не удалось синхронизировать время, но пробуем дальше")
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,3 +95,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
