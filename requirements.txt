@@ -1,3 +1,4 @@
 python-telegram-bot==20.7
-gspread==6.1.2
-google-auth==2.29.0
+requests==2.31.0
+gspread==6.1.2        # если оставляешь логирование
+google-auth==2.29.0   # если оставляешь логирование
