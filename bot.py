@@ -3,10 +3,16 @@ import logging
 import requests
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes, ConversationHandler
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, filters,
+    CallbackQueryHandler, ContextTypes, ConversationHandler
+)
 
 # Настройка логирования
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # Константы
@@ -22,38 +28,27 @@ def get_currency_rates():
     try:
         response = requests.get('https://www.cbr-xml-daily.ru/daily_json.js', timeout=5)
         data = response.json()
-        
         # Курс йены (за 100 йен, делим на 100)
         jpy_rate = data['Valute']['JPY']['Value'] / 100
         eur_rate = data['Valute']['EUR']['Value']
-        
         logger.info(f"✅ Получены курсы: JPY={jpy_rate:.4f}, EUR={eur_rate:.4f}")
-        
-        return {
-            'jpy': round(jpy_rate, 4),
-            'eur': round(eur_rate, 4)
-        }
+        return {'jpy': round(jpy_rate, 4), 'eur': round(eur_rate, 4)}
     except Exception as e:
         logger.error(f"❌ Ошибка получения курсов: {e}")
         # Запасные курсы на случай ошибки
-        return {
-            'jpy': 0.55,
-            'eur': 95.0
-        }
+        return {'jpy': 0.55, 'eur': 95.0}
 
 # ========== ФУНКЦИИ РАСЧЁТА (БЕЗ НДС) ==========
 def calculate_duty(price_jpy, year, engine_cc, power_hp):
-    # Получаем актуальные курсы
     rates = get_currency_rates()
-    jpy_rate = rates['jpy']
-    eur_rate = rates['eur']
+    jpy_rate, eur_rate = rates['jpy'], rates['eur']
 
     current_year = datetime.now().year
     age = current_year - year
 
     # Таможенная стоимость = авто + фрахт (120 000 йен)
-    price_rub = price_jpy * jpy_rate
-    freight_rub = 120000 * jpy_rate
+    price_rub = price_jpy * jpy_rate *1,05
+    freight_rub = 120000 * jpy_rate *1,05
     customs_value = price_rub + freight_rub
 
     # Расчёт пошлины
@@ -121,7 +116,7 @@ def calculate_duty(price_jpy, year, engine_cc, power_hp):
     propiska = 5000
     commission = 30000
 
-    # ИТОГО во Владивостоке (БЕЗ НДС)
+    # ИТОГО
     total_vlad = customs_value + duty_rub + util_rub + customs_fee + services + propiska
     total_with_commission = total_vlad + commission
 
@@ -141,8 +136,20 @@ def calculate_duty(price_jpy, year, engine_cc, power_hp):
 def format_number(num):
     return f"{num:,}".replace(',', ' ')
 
+# ========== ЛОГИРОВАНИЕ ЗАПРОСОВ ==========
+def log_request(user_id, username, data, results):
+    logger.info("=" * 50)
+    logger.info(f"👤 Пользователь: {username} (ID: {user_id})")
+    logger.info(f"📅 Дата/время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+    logger.info(f"📊 Входные данные: {data['price']} JPY, {data['year']} г., {data['engine']} см³, {data['power']} л.с.")
+    logger.info(f"💰 Результат: {results['total_with_commission']} ₽ (с комиссией)")
+    logger.info(f"💱 Курсы: JPY={results['jpy_rate']} ₽, EUR={results['eur_rate']} ₽")
+    logger.info("=" * 50)
+
 # ========== ОБРАБОТЧИКИ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    logger.info(f"🟢 Пользователь {user.username or 'без username'} (ID: {user.id}) запустил бота")
     await update.message.reply_text(
         "🚗 **Добро пожаловать в калькулятор авто из Японии!**\n\n"
         "Я помогу рассчитать полную стоимость автомобиля с доставкой во Владивосток.\n\n"
@@ -213,6 +220,10 @@ async def handle_power(update: Update, context: ContextTypes.DEFAULT_TYPE):
     results = calculate_duty(price, year, engine, power)
     context.user_data['last_results'] = results
 
+    # Логируем запрос
+    log_data = {'price': price, 'year': year, 'engine': engine, 'power': power}
+    log_request(update.effective_user.id, update.effective_user.username, log_data, results)
+
     # Краткий результат
     short = (
         f"🚗 **РАСЧЁТ СТОИМОСТИ АВТО ИЗ ЯПОНИИ**\n\n"
@@ -224,14 +235,21 @@ async def handle_power(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💱 **Курсы на сегодня:**\n"
         f"• 1 JPY = {results['jpy_rate']} ₽\n"
         f"• 1 EUR = {results['eur_rate']} ₽\n\n"
-        f"💰 **ИТОГО во Владивостоке:** {format_number(results['total_with_commission'])} ₽\n\n"
-        f"ℹ️ Нажмите кнопку **\"🔍 Детали\"**, чтобы увидеть полный расчёт.\n"
-        f"🔄 Для нового расчёта введите /start"
+        f"💰 **ИТОГО во Владивостоке:** {format_number(results['total_with_commission'])} ₽\n"
     )
 
-    keyboard = [[InlineKeyboardButton("🔍 Детали", callback_data='details')]]
-    await update.message.reply_text(short, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
+    # Клавиатура с двумя кнопками
+    keyboard = [
+        [
+            InlineKeyboardButton("🔍 Детали", callback_data='details'),
+            InlineKeyboardButton("🔄 Новый расчёт", callback_data='new')
+        ]
+    ]
+    await update.message.reply_text(
+        short,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
     return ConversationHandler.END
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -242,7 +260,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if results:
             full = (
                 f"📊 **ДЕТАЛЬНЫЙ РАСЧЁТ:**\n\n"
-                f"📦 Таможенная стоимость авто + фрахт (120 000 йен): {format_number(results['customs_value'])} ₽\n"
+                f"📦 Таможенная стоимость = авто + фрахт (120 000 йен): {format_number(results['customs_value'])} ₽\n"
                 f"📈 Пошлина: {format_number(results['duty_rub'])} ₽\n"
                 f"🧾 Утильсбор: {format_number(results['util_rub'])} ₽\n"
                 f"🏷️ Таможенный сбор: {format_number(results['customs_fee'])} ₽\n"
@@ -252,9 +270,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💱 Курсы: JPY={results['jpy_rate']} ₽, EUR={results['eur_rate']} ₽\n\n"
                 f"✨ **ИТОГО: {format_number(results['total_with_commission'])} ₽**"
             )
-            await query.message.reply_text(full, parse_mode='Markdown')
+            # Добавляем кнопку "Новый расчёт" прямо под деталями
+            await query.message.reply_text(
+                full,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Новый расчёт", callback_data='new')]]),
+                parse_mode='Markdown'
+            )
         else:
             await query.message.reply_text("❌ Данные не найдены. Введите /start для нового расчёта.")
+    elif query.data == 'new':
+        # Полностью очищаем данные пользователя
+        context.user_data.clear()
+        await query.message.reply_text(
+            "🚗 **Введите стоимость авто в йенах** (например: 1000000):",
+            parse_mode='Markdown'
+        )
+        return PRICE
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Отменено. Для начала введите /start")
@@ -269,8 +300,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   • Год выпуска\n"
         "   • Объём двигателя (см³)\n"
         "   • Мощность (л.с.)\n\n"
-        "3. Получите расчёт и кнопку «Детали».\n"
-        "4. Для нового расчёта снова введите /start.",
+        "3. Получите расчёт с кнопками.\n"
+        "4. Для нового расчёта нажмите кнопку «🔄 Новый расчёт» в любом сообщении.",
         parse_mode='Markdown'
     )
 
@@ -282,8 +313,12 @@ def main():
 
     app = Application.builder().token(TOKEN).build()
 
+    # ConversationHandler с entry points: /start и callback_data='new'
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+        entry_points=[
+            CommandHandler('start', start),
+            CallbackQueryHandler(button_callback, pattern='^new$')
+        ],
         states={
             PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_price)],
             YEAR: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_year)],
@@ -295,7 +330,8 @@ def main():
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler('help', help_command))
-    app.add_handler(CallbackQueryHandler(button_callback))
+    # Обработчик для кнопки 'details' (не входит в диалог)
+    app.add_handler(CallbackQueryHandler(button_callback, pattern='^details$'))
 
     logger.info("✅ Бот запущен. Жду сообщения...")
     app.run_polling()
