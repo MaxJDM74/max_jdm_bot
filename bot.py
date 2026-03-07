@@ -47,8 +47,8 @@ def calculate_duty(price_jpy, year, engine_cc, power_hp):
     age = current_year - year
 
     # Таможенная стоимость = авто + фрахт (120 000 йен)
-    price_rub = price_jpy * jpy_rate *1,05
-    freight_rub = 120000 * jpy_rate *1,05
+    price_rub = price_jpy * jpy_rate * 1,05
+    freight_rub = 120000 * jpy_rate * 1,05
     customs_value = price_rub + freight_rub
 
     # Расчёт пошлины
@@ -338,3 +338,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
