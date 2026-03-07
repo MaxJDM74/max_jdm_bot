@@ -1,11 +1,12 @@
 import os
 import logging
+import requests
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes, ConversationHandler
 
 # Настройка логирования
-logging.basicConfig(format='%(asname)-8s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Константы
@@ -15,11 +16,37 @@ YOUR_NICK = '@Max_JDM_chel'
 # Состояния диалога
 PRICE, YEAR, ENGINE, POWER = range(4)
 
+# ========== ПОЛУЧЕНИЕ АКТУАЛЬНЫХ КУРСОВ ==========
+def get_currency_rates():
+    """Получает актуальные курсы с сайта ЦБ РФ"""
+    try:
+        response = requests.get('https://www.cbr-xml-daily.ru/daily_json.js', timeout=5)
+        data = response.json()
+        
+        # Курс йены (за 100 йен, делим на 100)
+        jpy_rate = data['Valute']['JPY']['Value'] / 100
+        eur_rate = data['Valute']['EUR']['Value']
+        
+        logger.info(f"✅ Получены курсы: JPY={jpy_rate:.4f}, EUR={eur_rate:.4f}")
+        
+        return {
+            'jpy': round(jpy_rate, 4),
+            'eur': round(eur_rate, 4)
+        }
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения курсов: {e}")
+        # Запасные курсы на случай ошибки
+        return {
+            'jpy': 0.55,
+            'eur': 95.0
+        }
+
 # ========== ФУНКЦИИ РАСЧЁТА (БЕЗ НДС) ==========
 def calculate_duty(price_jpy, year, engine_cc, power_hp):
-    # Курсы валют (можно заменить на актуальные, но пока так)
-    jpy_rate = 0.50
-    eur_rate = 95.0
+    # Получаем актуальные курсы
+    rates = get_currency_rates()
+    jpy_rate = rates['jpy']
+    eur_rate = rates['eur']
 
     current_year = datetime.now().year
     age = current_year - year
@@ -106,14 +133,15 @@ def calculate_duty(price_jpy, year, engine_cc, power_hp):
         'services': services,
         'propiska': propiska,
         'commission': commission,
-        'total_with_commission': round(total_with_commission)
+        'total_with_commission': round(total_with_commission),
+        'jpy_rate': jpy_rate,
+        'eur_rate': eur_rate
     }
 
 def format_number(num):
     return f"{num:,}".replace(',', ' ')
 
 # ========== ОБРАБОТЧИКИ ==========
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🚗 **Добро пожаловать в калькулятор авто из Японии!**\n\n"
@@ -176,7 +204,6 @@ async def handle_power(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Введите корректную мощность (10-1000 л.с.):")
         return POWER
 
-    # Сохраняем данные
     context.user_data['power'] = power
     price = context.user_data['price']
     year = context.user_data['year']
@@ -194,12 +221,14 @@ async def handle_power(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Год: {year}\n"
         f"• Объём: {format_number(engine)} см³\n"
         f"• Мощность: {power} л.с.\n\n"
+        f"💱 **Курсы на сегодня:**\n"
+        f"• 1 JPY = {results['jpy_rate']} ₽\n"
+        f"• 1 EUR = {results['eur_rate']} ₽\n\n"
         f"💰 **ИТОГО во Владивостоке:** {format_number(results['total_with_commission'])} ₽\n\n"
         f"ℹ️ Нажмите кнопку **\"🔍 Детали\"**, чтобы увидеть полный расчёт.\n"
         f"🔄 Для нового расчёта введите /start"
     )
 
-    # Оставляем только кнопку "Детали"
     keyboard = [[InlineKeyboardButton("🔍 Детали", callback_data='details')]]
     await update.message.reply_text(short, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -213,13 +242,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if results:
             full = (
                 f"📊 **ДЕТАЛЬНЫЙ РАСЧЁТ:**\n\n"
-                f"📦 Таможенная стоимость: {format_number(results['customs_value'])} ₽\n"
+                f"📦 Таможенная стоимость авто + фрахт (120 000 йен): {format_number(results['customs_value'])} ₽\n"
                 f"📈 Пошлина: {format_number(results['duty_rub'])} ₽\n"
                 f"🧾 Утильсбор: {format_number(results['util_rub'])} ₽\n"
                 f"🏷️ Таможенный сбор: {format_number(results['customs_fee'])} ₽\n"
                 f"📋 ЭПТС / услуги: {format_number(results['services'])} ₽\n"
                 f"📍 Прописка: {format_number(results['propiska'])} ₽\n"
                 f"➕ Комиссия: {format_number(results['commission'])} ₽\n\n"
+                f"💱 Курсы: JPY={results['jpy_rate']} ₽, EUR={results['eur_rate']} ₽\n\n"
                 f"✨ **ИТОГО: {format_number(results['total_with_commission'])} ₽**"
             )
             await query.message.reply_text(full, parse_mode='Markdown')
@@ -272,4 +302,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
